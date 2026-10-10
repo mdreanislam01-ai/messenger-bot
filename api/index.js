@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(200).json({
-      replies: [{ message: "Error: Vercel-এ GEMINI_API_KEY পাওয়া যায়নি!" }]
+      replies: [{ message: "Error: Vercel-এ GEMINI_API_KEY পাওয়া যায়নি!" }]
     });
   }
 
@@ -26,97 +26,54 @@ export default async function handler(req, res) {
       return res.status(200).json({ replies: [] });
     }
 
-    // অ্যাকাউন্ট অনুযায়ী পরিচয় নির্ধারণ
+    // অ্যাকাউন্ট অনুযায়ী স্বত্ব ও মেজাজ
     let identityName = "Rean Islam";
-    let identityTone = "ছেলে, বন্ধুত্বপূর্ণ ও ক্যাজুয়াল মেজাজে কথা বলবে।";
+    let identityTone = "ছেলে, ক্যাজুয়াল, আন্তরিক ও বন্ধুসুলভ মেজাজে কথা বলবে।";
 
     if (requestedAccount === "tonni") {
       identityName = "Sultana Nur Tonni";
-      identityTone = "মেয়ে, মিষ্টি, ভদ্র ও ঘরোয়া ভাষায় কথা বলবে।";
+      identityTone = "মেয়ে, মিষ্টি, ভদ্র, আন্তরিক ও স্বাভাবিক ঘরোয়া ভাষায় কথা বলবে।";
     }
 
     const systemPrompt = `You are a real human replying to Facebook Messenger chats on your own behalf.
-Identity: You are ${identityName} (${identityTone}).
-Rules:
-- Reply naturally like an authentic friend in the sender's language (Bangla or English).
-- Return ONLY the direct message text.
-- NEVER add prefixes like "*Automatic reply*", asterisks, labels, or disclaimers.
-- NEVER mention you are an AI or bot. Keep replies realistic and short.`;
+Your Identity: You are ${identityName} (${identityTone}).
+Instructions:
+- Reply naturally, politely, and casually in Bengali (Bangla) or English (match the sender's language).
+- Strictly return ONLY the message reply text.
+- NEVER include prefixes like "*Automatic reply*", "Bot:", asterisks, labels, or disclaimers.
+- NEVER mention or admit that you are an AI or bot. Reply authentically like a friend. Keep it short.`;
 
-    // আপনার নতুন সক্রিয় মডেলগুলোর তালিকা
-    const targetModels = [
-      "gemini-3.8-flash",
-      "3.8-flash",
-      "gemini-3.5-flash-lite",
-      "3.5-flash-lite",
-      "gemini-3.1-pro",
-      "3.1-pro"
-    ];
+    // গুগলের সক্রিয় আধুনিক মডেল gemini-2.5-flash (সুপার ফাস্ট)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-    let replyText = "";
-    let lastError = "";
-
-    for (const model of targetModels) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-        const payload = {
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: `${systemPrompt}\n\nIncoming message: ${userMessage}` }]
-            }
-          ]
-        };
-
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        const result = await response.json();
-
-        if (response.ok && result.candidates?.[0]?.content?.parts?.[0]?.text) {
-          replyText = result.candidates[0].content.parts[0].text;
-          break; // সফল হলে লুপ থেমে যাবে
-        } else if (result.error?.message) {
-          lastError = result.error.message;
+    const payload = {
+      system_instruction: {
+        parts: [{ text: systemPrompt }]
+      },
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: userMessage }]
         }
-      } catch (err) {
-        lastError = err.message;
-      }
-    }
+      ]
+    };
 
-    // যদি ফিক্সড মডেল নামের ফরম্যাট না মেলে, তবে এপিআই থেকে সরাসরি লাইভ মডেলের নাম খুঁজে নেবে
-    if (!replyText) {
-      const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`;
-      const listRes = await fetch(listUrl);
-      const listData = await listRes.json();
-      
-      const availableModel = listData.models?.find(m => 
-        m.supportedGenerationMethods?.includes("generateContent")
-      );
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
 
-      if (availableModel) {
-        const dynamicUrl = `https://generativelanguage.googleapis.com/v1beta/${availableModel.name}:generateContent?key=${apiKey}`;
-        const dynamicRes = await fetch(dynamicUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts: [{ text: `${systemPrompt}\n\nIncoming message: ${userMessage}` }] }]
-          })
-        });
-        const dynamicData = await dynamicRes.json();
-        replyText = dynamicData.candidates?.[0]?.content?.parts?.[0]?.text;
-      }
-    }
+    const result = await response.json();
 
-    if (!replyText) {
+    if (!response.ok) {
+      const errDetail = result.error?.message || "Google API Error";
       return res.status(200).json({
-        replies: [{ message: `API Error: ${lastError}` }]
+        replies: [{ message: `API Error: ${errDetail}` }]
       });
     }
 
+    let replyText = result.candidates?.[0]?.content?.parts?.[0]?.text || "বলো, শুনছি।";
     replyText = replyText.replace(/\*?Automatic reply\*?:?/gi, "").trim();
 
     return res.status(200).json({
