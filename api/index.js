@@ -1,6 +1,6 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -17,25 +17,18 @@ export default async function handler(req, res) {
       return res.status(200).json({ replies: [] });
     }
 
-    const systemPrompt = `You are a personal assistant on Facebook Messenger. 
-Reply naturally and concisely in the same language (Bangla or English). 
-Do NOT include any prefixes like "Automatic reply", asterisks, labels, or bot disclaimers. 
-Reply directly like a human friend.`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: userMessage,
-      config: {
-        systemInstruction: systemPrompt,
-      }
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+      systemInstruction: "You are a personal assistant on Facebook Messenger. Reply naturally, politely, and concisely in the same language (Bangla or English). Do NOT add prefixes like 'Automatic reply', labels, asterisks, or disclaimers. Reply directly like a real human."
     });
 
-    const replyText = response.text || "আমি একটু ব্যস্ত আছি, পরে কথা বলছি।";
+    const result = await model.generateContent(userMessage);
+    const replyText = result.response.text();
 
     return res.status(200).json({
       replies: [
         {
-          message: replyText.trim()
+          message: replyText ? replyText.trim() : "আমি একটু পর কথা বলছি।"
         }
       ]
     });
@@ -49,4 +42,3 @@ Reply directly like a human friend.`;
     });
   }
 }
-
