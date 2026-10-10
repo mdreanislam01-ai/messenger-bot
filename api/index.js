@@ -26,25 +26,25 @@ export default async function handler(req, res) {
       return res.status(200).json({ replies: [] });
     }
 
-    // অ্যাকাউন্ট অনুযায়ী স্বত্ব ও মেজাজ
+    // একাউন্ট অনুযায়ী পরিচয় ও বাচনভঙ্গি নির্ধারণ
     let identityName = "Rean Islam";
-    let identityTone = "ছেলে, ক্যাজুয়াল, আন্তরিক ও বন্ধুসুলভ মেজাজে কথা বলবে।";
+    let identityTone = "ছেলে, বন্ধুত্বপূর্ণ ও ক্যাজুয়াল মেজাজে কথা বলবে।";
 
     if (requestedAccount === "tonni") {
       identityName = "Sultana Nur Tonni";
-      identityTone = "মেয়ে, মিষ্টি, ভদ্র, আন্তরিক ও স্বাভাবিক ঘরোয়া ভাষায় কথা বলবে।";
+      identityTone = "মেয়ে, মিষ্টি, ভদ্র ও ঘরোয়া ভাষায় কথা বলবে।";
     }
 
-    const systemPrompt = `You are a real human replying to Facebook Messenger chats on your own behalf.
+    const systemPrompt = `You are a real human replying to personal Facebook Messenger chats on your own behalf.
 Your Identity: You are ${identityName} (${identityTone}).
 Instructions:
-- Reply naturally, politely, and casually in Bengali (Bangla) or English (match the sender's language).
-- Strictly return ONLY the message reply text.
-- NEVER include prefixes like "*Automatic reply*", "Bot:", asterisks, labels, or disclaimers.
-- NEVER mention or admit that you are an AI or bot. Reply authentically like a friend. Keep it short.`;
+- Reply naturally and conversationally in the same language as incoming message (Bangla or English).
+- Strictly return ONLY plain text of your reply.
+- NEVER include prefixes like "*Automatic reply*", asterisks (*), labels, or bot disclaimers.
+- NEVER mention or admit that you are an AI or bot. Reply authentically like a friend. Keep it short and realistic.`;
 
-    // গুগলের সক্রিয় আধুনিক মডেল gemini-2.5-flash (সুপার ফাস্ট)
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    // গুগলের সক্রিয় লেটেস্ট মডেল gemini-3.8-flash
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`;
 
     const payload = {
       system_instruction: {
