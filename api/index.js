@@ -1,5 +1,3 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(200).json({ replies: [{ message: "Only POST allowed" }] });
@@ -7,64 +5,79 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(200).json({ replies: [{ message: "API Key missing" }] });
+    return res.status(200).json({ replies: [{ message: "Error: GEMINI_API_KEY পাওয়া যায়নি।" }] });
   }
 
   try {
     const data = req.body || {};
+    const queryParams = req.query || {};
     
-    // AutoResponder ডাটা পাঠায় query.message বা রুট message ফিল্ডে
+    // AutoResponder পাঠানো মেসেজ
     const userMessage = data.query?.message || data.message || data.text || "";
-    const sender = data.query?.sender || data.sender || "";
-    const fullPayload = JSON.stringify(data);
+    const requestedAccount = queryParams.account || "";
 
     if (!userMessage || userMessage.trim() === "") {
       return res.status(200).json({ replies: [] });
     }
 
-    // আপনার দেওয়া অরিজিনাল প্রম্পটটি সিস্টেমে নিখুঁতভাবে বসানো হয়েছে
-    const systemPrompt = `You are my personal AI assistant for Messenger. Reply naturally and helpfully on my behalf. Use the same language as the sender, especially Bangla or English. Read the conversation history before replying and answer the latest message directly. Be friendly, polite, concise, and conversational like an authentic human friend. Never invent personal details, prices, promises, or facts. If you do not know something, ask politely. Do not mention that you are an AI. Avoid repeating previous replies.
-CRITICAL FORMAT RULE: Output ONLY the plain conversational message. Never output prefixes like "*Automatic reply*", asterisks, labels, or bot disclaimers.
+    // অ্যাকাউন্ট অনুযায়ী ব্যক্তিত্ব ও নাম
+    let identityName = "Rean Islam";
+    let identityTone = "ছেলে, বন্ধুত্বপূর্ণ ও ক্যাজুয়াল মেজাজে কথা বলবে।";
 
-IDENTITIES & ACCOUNTS:
-1. Account 1: Sultana Nur Tonni (Speak naturally as Tonni).
-2. Account 2: Rean Islam (Speak naturally as Rean).
-Context metadata: ${fullPayload}
-If the context indicates Sultana Nur Tonni, represent Tonni. If Rean Islam, represent Rean. Otherwise, speak naturally in first person.`;
-
-    const genAI = new GoogleGenerativeAI(apiKey);
-    
-    // gemini-2.5-flash সবচেয়ে দ্রুত ও আধুনিক
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      systemInstruction: systemPrompt
-    });
-
-    const result = await model.generateContent(`Sender: ${sender}\nMessage: ${userMessage}`);
-    const response = await result.response;
-    let replyText = response.text();
-
-    if (replyText) {
-      // যদি কোনো কারণে Automatic reply বা তারকাচিহ্ন চলে আসে, তা স্বয়ংক্রিয়ভাবে মুছে ফেলবে
-      replyText = replyText.replace(/\*?Automatic reply\*?:?/gi, "").trim();
+    if (requestedAccount === "tonni") {
+      identityName = "Sultana Nur Tonni";
+      identityTone = "মেয়ে, মিষ্টি, ভদ্র ও ঘরোয়াভাবে কথা বলবে।";
     }
 
-    return res.status(200).json({
-      replies: [
+    const systemPrompt = `You are a real human replying to personal Facebook Messenger chats.
+Your identity: You are ${identityName} (${identityTone}).
+Instructions:
+- Reply naturally like an authentic human friend in Bengali (Bangla) or English based on the sender's language.
+- Strictly return ONLY the plain text reply.
+- Never add prefixes like "Automatic reply", asterisks, labels, or bot disclaimers.
+- Never mention you are an AI or bot. Keep replies short and realistic.`;
+
+    // সরাসরি Google Gemini REST API কল (v1beta gemini-1.5-flash)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+    const bodyData = {
+      system_instruction: {
+        parts: [{ text: systemPrompt }]
+      },
+      contents: [
         {
-          message: replyText || "বলো, শুনছি।"
+          role: "user",
+          parts: [{ text: userMessage }]
         }
       ]
+    };
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(bodyData)
     });
-  } catch (err) {
-    console.error("Gemini Error:", err);
-    // এরর হলে ফিক্সড ডায়ালগের বদলে সংক্ষেপে উত্তর দিবে
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      // যদি Google কোনো এরর দেয়, তবে সরাসরি সেই এররটি দেখাবে যাতে বোঝা যায়
+      const errMsg = result.error?.message || "Google API Error";
+      return res.status(200).json({
+        replies: [{ message: `API Error: ${errMsg}` }]
+      });
+    }
+
+    let replyText = result.candidates?.[0]?.content?.parts?.[0]?.text || "বলো, শুনছি।";
+    replyText = replyText.replace(/\*?Automatic reply\*?:?/gi, "").trim();
+
     return res.status(200).json({
-      replies: [
-        {
-          message: "একটু ব্যস্ত আছি, একটু পর ফ্রি হয়ে কথা বলছি।"
-        }
-      ]
+      replies: [{ message: replyText }]
+    });
+
+  } catch (err) {
+    return res.status(200).json({
+      replies: [{ message: `Server Error: ${err.message}` }]
     });
   }
 }
