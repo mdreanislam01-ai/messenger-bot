@@ -8,15 +8,13 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(200).json({ replies: [{ message: "একটু অপেক্ষা করো, এখনই আসছি।" }] });
+    return res.status(200).json({ replies: [{ message: "একটু ব্যস্ত আছি, একটু পর ফ্রি হয়ে কথা বলছি।" }] });
   }
 
   try {
     let body = req.body;
     if (typeof body === 'string') {
-      try {
-        body = JSON.parse(body);
-      } catch (e) {}
+      try { body = JSON.parse(body); } catch (e) {}
     }
     body = body || {};
 
@@ -28,7 +26,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ replies: [] });
     }
 
-    // ১. অ্যাকাউন্ট অনুযায়ী সঠিক পরিচয় ও ভূমিকা
+    // ১. অ্যাকাউন্ট পরিচয় ও বাচনভঙ্গি
     let identityName = "Rean Islam";
     let identityTone = "ছেলে, বন্ধুত্বপূর্ণ, ক্যাজুয়াল, আন্তরিক ও মানুষের মতো বাস্তবসম্মত মেজাজে কথা বলবে।";
 
@@ -40,25 +38,19 @@ export default async function handler(req, res) {
     const systemPrompt = `You are a real human replying to personal Facebook Messenger messages on your own behalf.
 Your Identity: You are ${identityName} (${identityTone}).
 Instructions:
-- Reply naturally and conversationally in the same language as incoming message (Bengla or English).
+- Reply naturally and conversationally in the same language as incoming message (Bangla or English).
 - Always remember and follow the context of the conversation history.
 - Strictly return ONLY the message reply text.
 - NEVER include prefixes like "*Automatic reply*", asterisks (*), labels, or disclaimers.
-- NEVER mention or admit that you are an AI or bot. Reply authentically like a friend. Keep it concise.`;
+- NEVER mention or admit that you are an AI or bot. Reply authentically like a friend. Keep it short.`;
 
-    // ২. মেমোরি লোড ও সাজানো
+    // ২. মেমোরি লোড
     const sessionKey = `${requestedAccount}_${sender}`;
     let history = chatMemory.get(sessionKey) || [];
-
-    // ব্যবহারকারীর নতুন মেসেজ মেমোরিতে যুক্ত করা
     history.push({ role: "user", parts: [{ text: userMessage }] });
 
-    // মেমোরি ফ্রেশ রাখতে শেষ ১০টি মেসেজ সংরক্ষিত থাকবে
-    if (history.length > 10) {
-      history = history.slice(-10);
-    }
+    if (history.length > 8) history = history.slice(-8);
 
-    // গুগল API ফরম্যাট অনুযায়ী মেমোরি ঠিক রাখা (alternating user/model)
     const sanitizedContents = [];
     for (const turn of history) {
       if (sanitizedContents.length > 0 && sanitizedContents[sanitizedContents.length - 1].role === turn.role) {
@@ -71,23 +63,23 @@ Instructions:
       sanitizedContents.shift();
     }
 
-    // ৩. হাই-ডিমান্ড এড়াতে সক্রিয় মডেলগুলো (একটি বিজি থাকলে সাথে সাথে অন্যটিতে চলে যাবে)
-    const availableModels = [
-      "gemini-3.5-flash-lite", // অতি দ্রুতগতির
-      "gemini-3.8-flash",      // মূল মডেল
-      "gemini-3.1-pro"         // অ্যাডভান্সড ব্যাকআপ
+    // ৩. মডেলের ধারাবাহিক তালিকা (3.5 -> 3.8 -> 3.1 Pro)
+    const targetModels = [
+      "gemini-3.5-flash-lite", // ১. প্রধান মডেল (দ্রুততম ও ফ্রি কোটা বেশি)
+      "gemini-3.8-flash",      // ২. দ্বিতীয় ব্যাকআপ
+      "gemini-3.1-pro"         // ৩. চূড়ান্ত প্রো ব্যাকআপ
     ];
 
     let replyText = "";
 
-    for (const modelName of availableModels) {
+    for (const modelName of targetModels) {
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         const payload = {
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents: sanitizedContents,
           generationConfig: {
-            maxOutputTokens: 250,
+            maxOutputTokens: 220,
             temperature: 0.7
           }
         };
@@ -100,25 +92,25 @@ Instructions:
 
         const result = await response.json();
 
-        // যদি উত্তর সফলভাবে আসে এবং কোনো ডিমান্ড এরর না থাকে
+        // সফল উত্তর পেলে সাথে সাথে লুপ বন্ধ হবে
         if (response.ok && result.candidates?.[0]?.content?.parts?.[0]?.text) {
           replyText = result.candidates[0].content.parts[0].text;
-          break; // সফল হলে লুপ সাথে সাথে বন্ধ
+          break; 
         }
       } catch (err) {
-        // কোনো মডেল ফেইল করলে নিঃশব্দে পরের মডেলে যাবে
+        // কোনো মডেলে বাধা পেলে নিঃশব্দে পরবর্তী মডেলে শিফট করবে
       }
     }
 
-    // ৪. যদি সব মডেলই সাময়িক বিজি থাকে, তাহলেও কোনো এরর দেখাবে না
+    // ৪. চরম পরিস্থিতিতে কোনো মডেল না পেলে স্বাভাবিক টেক্সট দেবে (কোনো এরর চ্যাটে দেখাবে না)
     if (!replyText || replyText.trim() === "") {
-      replyText = "একটু অপেক্ষা করো, এখনই বলছি।";
+      replyText = "একটু অপেক্ষা করো, বলছি।";
     }
 
-    // প্রিফিক্স ও অতিরিক্ত চিহ্ন ফিল্টার করা
+    // প্রিফিক্স ফিল্টার
     replyText = replyText.replace(/\*?Automatic reply\*?:?/gi, "").trim();
 
-    // এআই-এর উত্তর মেমোরিতে সেভ করা
+    // এআই-এর উত্তর মেমোরিতে সংরক্ষণ
     history.push({ role: "model", parts: [{ text: replyText }] });
     chatMemory.set(sessionKey, history);
 
@@ -127,7 +119,6 @@ Instructions:
     });
 
   } catch (err) {
-    // যেকোনো ক্র্যাশের ক্ষেত্রেও সাধারণ মানুষের মতো উত্তর দিবে
     return res.status(200).json({
       replies: [{ message: "একটু অপেক্ষা করো, এখনই বলছি।" }]
     });
