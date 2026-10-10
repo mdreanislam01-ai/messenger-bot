@@ -1,4 +1,4 @@
-// মেমোরি স্টোরেজ (প্রতিটি প্রেরকের আগের মেসেজ মনে রাখার জন্য)
+// মেমোরি স্টোরেজ (কথোপকথনের হিস্ট্রি মনে রাখার জন্য)
 const chatMemory = new Map();
 
 export default async function handler(req, res) {
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(200).json({ replies: [{ message: "একটু পর কথা বলছি।" }] });
+    return res.status(200).json({ replies: [{ message: "একটু অপেক্ষা করো, এখনই আসছি।" }] });
   }
 
   try {
@@ -21,16 +21,16 @@ export default async function handler(req, res) {
     body = body || {};
 
     const userMessage = body.query?.message || body.message || body.text || "";
-    const sender = body.query?.sender || "friend";
-    const requestedAccount = req.query?.account || "";
+    const sender = (body.query?.sender || "friend").toLowerCase();
+    const requestedAccount = (req.query?.account || "").toLowerCase();
 
     if (!userMessage || userMessage.trim() === "") {
       return res.status(200).json({ replies: [] });
     }
 
-    // ১. একাউন্ট অনুযায়ী সঠিক পরিচয়
+    // ১. অ্যাকাউন্ট অনুযায়ী সঠিক পরিচয় ও ভূমিকা
     let identityName = "Rean Islam";
-    let identityTone = "ছেলে, বন্ধুসুলভ, ক্যাজুয়াল, আন্তরিক ও ছোট ছোট বাক্যে কথা বলবে।";
+    let identityTone = "ছেলে, বন্ধুত্বপূর্ণ, ক্যাজুয়াল, আন্তরিক ও মানুষের মতো বাস্তবসম্মত মেজাজে কথা বলবে।";
 
     if (requestedAccount === "tonni") {
       identityName = "Sultana Nur Tonni";
@@ -40,25 +40,25 @@ export default async function handler(req, res) {
     const systemPrompt = `You are a real human replying to personal Facebook Messenger messages on your own behalf.
 Your Identity: You are ${identityName} (${identityTone}).
 Instructions:
-- Reply naturally and conversationally in the same language as incoming message (Bangla or English).
+- Reply naturally and conversationally in the same language as incoming message (Bengla or English).
 - Always remember and follow the context of the conversation history.
 - Strictly return ONLY the message reply text.
-- NEVER include prefixes like "*Automatic reply*", "Bot:", asterisks (*), labels, or bot disclaimers.
-- NEVER mention or admit that you are an AI or bot. Reply authentically like a friend. Keep it short.`;
+- NEVER include prefixes like "*Automatic reply*", asterisks (*), labels, or disclaimers.
+- NEVER mention or admit that you are an AI or bot. Reply authentically like a friend. Keep it concise.`;
 
-    // ২. মেমোরি থেকে পূর্ববর্তী কথোপকথন লোড করা
+    // ২. মেমোরি লোড ও সাজানো
     const sessionKey = `${requestedAccount}_${sender}`;
     let history = chatMemory.get(sessionKey) || [];
 
-    // নতুন মেসেজ মেমোরিতে যোগ করা
+    // ব্যবহারকারীর নতুন মেসেজ মেমোরিতে যুক্ত করা
     history.push({ role: "user", parts: [{ text: userMessage }] });
 
-    // মেমোরি অতিরিক্ত বড় হয়ে গেলে শেষ ৮টি মেসেজ (৪ রাউন্ড) রাখা হবে
-    if (history.length > 8) {
-      history = history.slice(-8);
+    // মেমোরি ফ্রেশ রাখতে শেষ ১০টি মেসেজ সংরক্ষিত থাকবে
+    if (history.length > 10) {
+      history = history.slice(-10);
     }
 
-    // অল্টারনেটিং রুলস ঠিক রাখা (Google API এরর প্রতিরোধ)
+    // গুগল API ফরম্যাট অনুযায়ী মেমোরি ঠিক রাখা (alternating user/model)
     const sanitizedContents = [];
     for (const turn of history) {
       if (sanitizedContents.length > 0 && sanitizedContents[sanitizedContents.length - 1].role === turn.role) {
@@ -71,18 +71,23 @@ Instructions:
       sanitizedContents.shift();
     }
 
-    // ৩. মডেল নির্বাচন: প্রথমে অতি দ্রুতগতির 3.5 Flash-Lite, ফেইল করলে ব্যাকআপ 3.8 Flash
-    const models = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
+    // ৩. হাই-ডিমান্ড এড়াতে সক্রিয় মডেলগুলো (একটি বিজি থাকলে সাথে সাথে অন্যটিতে চলে যাবে)
+    const availableModels = [
+      "gemini-3.5-flash-lite", // অতি দ্রুতগতির
+      "gemini-3.8-flash",      // মূল মডেল
+      "gemini-3.1-pro"         // অ্যাডভান্সড ব্যাকআপ
+    ];
+
     let replyText = "";
 
-    for (const modelName of models) {
+    for (const modelName of availableModels) {
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
         const payload = {
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents: sanitizedContents,
           generationConfig: {
-            maxOutputTokens: 200,
+            maxOutputTokens: 250,
             temperature: 0.7
           }
         };
@@ -94,24 +99,26 @@ Instructions:
         });
 
         const result = await response.json();
+
+        // যদি উত্তর সফলভাবে আসে এবং কোনো ডিমান্ড এরর না থাকে
         if (response.ok && result.candidates?.[0]?.content?.parts?.[0]?.text) {
           replyText = result.candidates[0].content.parts[0].text;
-          break; // সফল হলে সাথে সাথে লুপ বন্ধ
+          break; // সফল হলে লুপ সাথে সাথে বন্ধ
         }
       } catch (err) {
-        // পরবর্তী ব্যাকআপ মডেলে চেষ্টা করবে
+        // কোনো মডেল ফেইল করলে নিঃশব্দে পরের মডেলে যাবে
       }
     }
 
-    // যদি দুটি মডেলই সাময়িক ব্যস্ত থাকে, টেকনিক্যাল এরর না দেখিয়ে স্বাভাবিক কথা বলবে
-    if (!replyText) {
-      replyText = "একটু নেট সমস্যা করছিল। কি যেন বলছিলে?";
+    // ৪. যদি সব মডেলই সাময়িক বিজি থাকে, তাহলেও কোনো এরর দেখাবে না
+    if (!replyText || replyText.trim() === "") {
+      replyText = "একটু অপেক্ষা করো, এখনই বলছি।";
     }
 
-    // প্রিফিক্স ও অতিরিক্ত চিহ্ন পরিষ্কার করা
+    // প্রিফিক্স ও অতিরিক্ত চিহ্ন ফিল্টার করা
     replyText = replyText.replace(/\*?Automatic reply\*?:?/gi, "").trim();
 
-    // এআই-এর উত্তর মেমোরিতে সেভ রাখা
+    // এআই-এর উত্তর মেমোরিতে সেভ করা
     history.push({ role: "model", parts: [{ text: replyText }] });
     chatMemory.set(sessionKey, history);
 
@@ -120,8 +127,9 @@ Instructions:
     });
 
   } catch (err) {
+    // যেকোনো ক্র্যাশের ক্ষেত্রেও সাধারণ মানুষের মতো উত্তর দিবে
     return res.status(200).json({
-      replies: [{ message: "একটু পর কথা বলছি, একটু কাজ করছি।" }]
+      replies: [{ message: "একটু অপেক্ষা করো, এখনই বলছি।" }]
     });
   }
 }
