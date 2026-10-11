@@ -1,4 +1,4 @@
-// মেমোরি স্টোরেজ (হিস্ট্রি মনে রাখার জন্য)
+// মেমোরি স্টোরেজ
 const chatMemory = new Map();
 
 export default async function handler(req, res) {
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(200).json({ replies: [{ message: "একটু ব্যস্ত আছি।" }] });
+    return res.status(200).json({ replies: [{ message: "একটু ব্যস্ত।" }] });
   }
 
   try {
@@ -26,14 +26,13 @@ export default async function handler(req, res) {
       return res.status(200).json({ replies: [] });
     }
 
-    // ১. বাংলাদেশ সময় এবং সময়কাল নির্ধারণ (Asia/Dhaka)
+    // ১. বাংলাদেশ সময় হিসাব (Asia/Dhaka)
     const now = new Date();
     const bdTimeStr = new Intl.DateTimeFormat('en-US', {
       timeZone: 'Asia/Dhaka',
       hour: 'numeric',
       minute: 'numeric',
-      hour12: true,
-      weekday: 'long'
+      hour12: true
     }).format(now);
 
     const hour24 = parseInt(new Intl.DateTimeFormat('en-US', {
@@ -43,62 +42,48 @@ export default async function handler(req, res) {
     }).format(now), 10);
 
     let timeContext = "দিন";
-    if (hour24 >= 0 && hour24 < 5) {
-      timeContext = "গভীর রাত (ঘুমানোর বা অলস সময়, বিছানায়/ফোনে থাকা স্বাভাবিক)";
-    } else if (hour24 >= 5 && hour24 < 12) {
-      timeContext = "সকাল";
-    } else if (hour24 >= 12 && hour24 < 16) {
-      timeContext = "দুপুর";
-    } else if (hour24 >= 16 && hour24 < 18) {
-      timeContext = "বিকাল";
-    } else if (hour24 >= 18 && hour24 < 20) {
-      timeContext = "সন্ধ্যা";
-    } else {
-      timeContext = "রাত";
-    }
+    if (hour24 >= 0 && hour24 < 5) timeContext = "গভীর রাত";
+    else if (hour24 >= 5 && hour24 < 12) timeContext = "সকাল";
+    else if (hour24 >= 12 && hour24 < 17) timeContext = "দুপুর";
+    else timeContext = "রাত";
 
-    // ২. পরিচয় ও সঠিক ব্যক্তিত্ব নির্ধারণ
+    // ২. অ্যাকাউন্ট অনুযায়ী পরিচয়
     let identityName = "Rean Islam";
-    let identityTone = "ছেলে (Male), রিল্যাক্সড, বাস্তবসম্মত ও ক্যাজুয়াল।";
+    let identityGender = "ছেলে (Male)";
 
     if (requestedAccount === "tonni" && !sender.includes("tonni") && !sender.includes("sultana")) {
       identityName = "Sultana Nur Tonni";
-      identityTone = "মেয়ে (Female), মিষ্টি, ঘরোয়া ও স্বাভাবিক।";
+      identityGender = "মেয়ে (Female)";
     }
 
     if (sender.includes("tonni") || sender.includes("sultana")) {
       identityName = "Rean Islam";
-      identityTone = "ছেলে (Male), ক্যাজুয়াল বন্ধু।";
+      identityGender = "ছেলে (Male)";
     }
 
-    // ৩. সময়জ্ঞান ও সংক্ষিপ্ততার কড়া নিয়ম
-    const systemPrompt = `You are a real human named ${identityName} (${identityTone}) texting friends on Facebook Messenger.
+    // ৩. নাটকীয়তা বন্ধ ও মেসেঞ্জারের সংক্ষিপ্ত চ্যাটের বাস্তব উদাহরণ
+    const systemPrompt = `You are ${identityName} (${identityGender}), chatting casually on Facebook Messenger.
+Current Bangladesh Time: ${bdTimeStr} (${timeContext}).
 
-CURRENT BANGLADESH TIME: ${bdTimeStr} (${timeContext}).
+ABSOLUTE CHAT RULES:
+1. MAX 3 TO 7 WORDS ONLY. Never exceed 1 short phrase.
+2. NO THEATRICAL / DRAMATIC WORDS: Strictly BANNED words: "গো", "সোনা", "প্রিয়", "মাশাআল্লাহ শুনে মন ভরে গেল", "বলো গো শুনছি"।
+3. REAL MESSENGER EXAMPLES:
+   - User: "আলহামদুলিল্লাহ" -> Reply: "হুম, আলহামদুলিল্লাহ।"
+   - User: "হ্যাঁ বলো" / "কী বলবা বলো" -> Reply: "আরে কিছু না, এমনি।"
+   - User: "কেমন আছো?" -> Reply: "ভালো, তুমি?"
+   - User: "কী করো?" -> (Time: ${timeContext}) -> Reply: "এইতো ফোন টিপছি।" or "শুয়ে আছি।"
+   - User: "সরি" -> Reply: "আরে ব্যাপার না।"
+4. NO UNNECESSARY QUESTIONS: Never ask random follow-up questions like "দিন কেমন কাটছে?" or "কী করতেছো?". Just answer simply.
+5. NO FAKE STORIES: Don't pretend you have huge secrets or fake news.
+6. OUTPUT: Raw single short line only. No quotes, no bot prefixes.`;
 
-STRICT RULES:
-1. TIME REALISM: 
-   - Always be logically aware of the current time (${bdTimeStr}, ${timeContext}).
-   - At late night (12 AM - 5 AM): Never say you just woke up, are eating breakfast, or going out/to classes. You are either chilling on your phone, working late, or getting sleepy.
-   - Match daily routines realistically according to the exact time of day.
-2. NO HALLUCINATIONS / FALSE FACTS:
-   - Do NOT invent unrealistic stories or fake personal commitments. Keep facts grounded and simple.
-3. CONCISE & NATURAL MESSAGING:
-   - Reply in ONLY 1 short sentence (5-12 words max), just like a real person chats on Messenger.
-   - Never write essays or unnecessary explanations.
-4. STOP ASKING CLICHÉ QUESTIONS:
-   - Do NOT continuously ask "দিন কেমন কাটছে?", "কী করছেন?" unless the friend explicitly asks for conversation.
-   - Simply react naturally (e.g., if someone says "আলহামদুলিল্লাহ", say "হুম আলহামদুলিল্লাহ").
-5. IDENTITY & CLEAN OUTPUT:
-   - You are strictly ${identityName}. Your identity never changes.
-   - Return ONLY the clean reply text. No quotes, labels, bot disclaimers, or asterisks (*).`;
-
-    // ৪. মেমোরি সংরক্ষণ
+    // ৪. চ্যাট মেমোরি (শেষ ৪টি মেসেজ নেওয়া হচ্ছে যাতে আগের বড় চ্যাটের প্রভাব কেটে যায়)
     const sessionKey = `${requestedAccount}_${sender}`;
     let history = chatMemory.get(sessionKey) || [];
     history.push({ role: "user", parts: [{ text: userMessage }] });
 
-    if (history.length > 6) history = history.slice(-6);
+    if (history.length > 4) history = history.slice(-4);
 
     const sanitizedContents = [];
     for (const turn of history) {
@@ -112,7 +97,7 @@ STRICT RULES:
       sanitizedContents.shift();
     }
 
-    // ৫. মডেল নির্বাচন (3.5 Flash-Lite -> 3.8 Flash -> 3.1 Pro)
+    // ৫. মডেল কল (টোকেন লিমিট মাত্র ৩৫)
     const targetModels = [
       "gemini-3.5-flash-lite",
       "gemini-3.8-flash",
@@ -128,8 +113,8 @@ STRICT RULES:
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents: sanitizedContents,
           generationConfig: {
-            maxOutputTokens: 60, // সর্বোচ্চ ৬০ টোকেন (বড় উত্তরের সুযোগ নেই)
-            temperature: 0.6
+            maxOutputTokens: 35, // সর্বোচ্চ ৩৫ টোকেন (বড় লেখা টেকনিক্যালি অসম্ভব)
+            temperature: 0.3    // একদম নিখুঁত ও বাস্তবমুখী উত্তরের জন্য
           }
         };
 
@@ -149,10 +134,10 @@ STRICT RULES:
     }
 
     if (!replyText || replyText.trim() === "") {
-      replyText = "একটু ব্যস্ত আছি, পরে কথা বলছি।";
+      replyText = "হুম।";
     }
 
-    // প্রিফিক্স মুছে ফেলা
+    // অপ্রয়োজনীয় ডায়লগ ও চিহ্ন ফিল্টার
     replyText = replyText.replace(/\*?Automatic reply\*?:?/gi, "").trim();
 
     history.push({ role: "model", parts: [{ text: replyText }] });
@@ -164,7 +149,7 @@ STRICT RULES:
 
   } catch (err) {
     return res.status(200).json({
-      replies: [{ message: "একটু পর বলছি।" }]
+      replies: [{ message: "একটু পর কথা বলছি।" }]
     });
   }
 }
