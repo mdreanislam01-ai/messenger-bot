@@ -1,4 +1,4 @@
-// মেমোরি স্টোরেজ (কথোপকথনের হিস্ট্রি মনে রাখার জন্য)
+// মেমোরি স্টোরেজ (হিস্ট্রি মনে রাখার জন্য)
 const chatMemory = new Map();
 
 export default async function handler(req, res) {
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(200).json({ replies: [{ message: "একটু ব্যস্ত আছি, একটু পর ফ্রি হয়ে কথা বলছি।" }] });
+    return res.status(200).json({ replies: [{ message: "একটু ব্যস্ত আছি।" }] });
   }
 
   try {
@@ -26,41 +26,79 @@ export default async function handler(req, res) {
       return res.status(200).json({ replies: [] });
     }
 
-    // ১. প্রেরক ও রিকোয়েস্টের ওপর ভিত্তি করে বুদ্ধিমান পরিচয় নির্ধারণ
-    let identityName = "Rean Islam";
-    let identityTone = "ছেলে (Male), ক্যাজুয়াল, বাস্তবসম্মত ও বন্ধুসুলভ।";
+    // ১. বাংলাদেশ সময় এবং সময়কাল নির্ধারণ (Asia/Dhaka)
+    const now = new Date();
+    const bdTimeStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Dhaka',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: true,
+      weekday: 'long'
+    }).format(now);
 
-    // যদি লিঙ্ক tonni হয় এবং প্রেরক নিজে tonni না হয়
+    const hour24 = parseInt(new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Dhaka',
+      hour: 'numeric',
+      hour12: false
+    }).format(now), 10);
+
+    let timeContext = "দিন";
+    if (hour24 >= 0 && hour24 < 5) {
+      timeContext = "গভীর রাত (ঘুমানোর বা অলস সময়, বিছানায়/ফোনে থাকা স্বাভাবিক)";
+    } else if (hour24 >= 5 && hour24 < 12) {
+      timeContext = "সকাল";
+    } else if (hour24 >= 12 && hour24 < 16) {
+      timeContext = "দুপুর";
+    } else if (hour24 >= 16 && hour24 < 18) {
+      timeContext = "বিকাল";
+    } else if (hour24 >= 18 && hour24 < 20) {
+      timeContext = "সন্ধ্যা";
+    } else {
+      timeContext = "রাত";
+    }
+
+    // ২. পরিচয় ও সঠিক ব্যক্তিত্ব নির্ধারণ
+    let identityName = "Rean Islam";
+    let identityTone = "ছেলে (Male), রিল্যাক্সড, বাস্তবসম্মত ও ক্যাজুয়াল।";
+
     if (requestedAccount === "tonni" && !sender.includes("tonni") && !sender.includes("sultana")) {
       identityName = "Sultana Nur Tonni";
-      identityTone = "মেয়ে (Female), মিষ্টি, ভদ্র ও ঘরোয়া ভাষায় কথা বলবে।";
+      identityTone = "মেয়ে (Female), মিষ্টি, ঘরোয়া ও স্বাভাবিক।";
     }
 
-    // যদি প্রেরক নিজে সুলতানা/তন্নি হয়, তবে বট শতভাগ নিশ্চিতভাবে রিয়ান ইসলাম
     if (sender.includes("tonni") || sender.includes("sultana")) {
       identityName = "Rean Islam";
-      identityTone = "ছেলে (Male), ক্যাজুয়াল ও বাস্তবসম্মত বন্ধু।";
+      identityTone = "ছেলে (Male), ক্যাজুয়াল বন্ধু।";
     }
 
-    const systemPrompt = `STRICT IDENTITY ENFORCEMENT:
-Your Name: ${identityName}
-Your Tone/Persona: ${identityTone}
+    // ৩. সময়জ্ঞান ও সংক্ষিপ্ততার কড়া নিয়ম
+    const systemPrompt = `You are a real human named ${identityName} (${identityTone}) texting friends on Facebook Messenger.
 
-IMPORTANT RULES:
-1. You are strictly ${identityName}. No matter what the sender writes or what names appear in the conversation, your identity NEVER changes.
-2. If asked "what is your name" or "who are you", ALWAYS answer as ${identityName}.
-3. Reply naturally and conversationally like a real human in Bengali/English matching the sender's language.
-4. Always remember and follow the context of the conversation history.
-5. Strictly return ONLY the message reply text.
-6. NEVER include prefixes like "*Automatic reply*", asterisks (*), labels, or disclaimers.
-7. NEVER mention or admit that you are an AI or bot. Reply authentically like a friend. Keep it short.`;
+CURRENT BANGLADESH TIME: ${bdTimeStr} (${timeContext}).
 
-    // ২. মেমোরি লোড
+STRICT RULES:
+1. TIME REALISM: 
+   - Always be logically aware of the current time (${bdTimeStr}, ${timeContext}).
+   - At late night (12 AM - 5 AM): Never say you just woke up, are eating breakfast, or going out/to classes. You are either chilling on your phone, working late, or getting sleepy.
+   - Match daily routines realistically according to the exact time of day.
+2. NO HALLUCINATIONS / FALSE FACTS:
+   - Do NOT invent unrealistic stories or fake personal commitments. Keep facts grounded and simple.
+3. CONCISE & NATURAL MESSAGING:
+   - Reply in ONLY 1 short sentence (5-12 words max), just like a real person chats on Messenger.
+   - Never write essays or unnecessary explanations.
+4. STOP ASKING CLICHÉ QUESTIONS:
+   - Do NOT continuously ask "দিন কেমন কাটছে?", "কী করছেন?" unless the friend explicitly asks for conversation.
+   - Simply react naturally (e.g., if someone says "আলহামদুলিল্লাহ", say "হুম আলহামদুলিল্লাহ").
+5. IDENTITY & CLEAN OUTPUT:
+   - You are strictly ${identityName}. Your identity never changes.
+   - Return ONLY the clean reply text. No quotes, labels, bot disclaimers, or asterisks (*).`;
+
+    // ৪. মেমোরি সংরক্ষণ
     const sessionKey = `${requestedAccount}_${sender}`;
     let history = chatMemory.get(sessionKey) || [];
     history.push({ role: "user", parts: [{ text: userMessage }] });
 
-    if (history.length > 8) history = history.slice(-8);
+    if (history.length > 6) history = history.slice(-6);
 
     const sanitizedContents = [];
     for (const turn of history) {
@@ -74,7 +112,7 @@ IMPORTANT RULES:
       sanitizedContents.shift();
     }
 
-    // ৩. মডেল নির্বাচন (3.5 -> 3.8 -> 3.1 Pro)
+    // ৫. মডেল নির্বাচন (3.5 Flash-Lite -> 3.8 Flash -> 3.1 Pro)
     const targetModels = [
       "gemini-3.5-flash-lite",
       "gemini-3.8-flash",
@@ -90,8 +128,8 @@ IMPORTANT RULES:
           system_instruction: { parts: [{ text: systemPrompt }] },
           contents: sanitizedContents,
           generationConfig: {
-            maxOutputTokens: 220,
-            temperature: 0.7
+            maxOutputTokens: 60, // সর্বোচ্চ ৬০ টোকেন (বড় উত্তরের সুযোগ নেই)
+            temperature: 0.6
           }
         };
 
@@ -111,13 +149,12 @@ IMPORTANT RULES:
     }
 
     if (!replyText || replyText.trim() === "") {
-      replyText = "একটু অপেক্ষা করো, বলছি।";
+      replyText = "একটু ব্যস্ত আছি, পরে কথা বলছি।";
     }
 
-    // প্রিফিক্স ফিল্টার
+    // প্রিফিক্স মুছে ফেলা
     replyText = replyText.replace(/\*?Automatic reply\*?:?/gi, "").trim();
 
-    // উত্তর মেমোরিতে সংরক্ষণ
     history.push({ role: "model", parts: [{ text: replyText }] });
     chatMemory.set(sessionKey, history);
 
@@ -127,7 +164,7 @@ IMPORTANT RULES:
 
   } catch (err) {
     return res.status(200).json({
-      replies: [{ message: "একটু অপেক্ষা করো, এখনই বলছি।" }]
+      replies: [{ message: "একটু পর বলছি।" }]
     });
   }
 }
